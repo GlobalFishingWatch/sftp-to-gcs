@@ -27,7 +27,7 @@ HELP_CHUNK_SIZE = "Number of lines per output AVRO file."
 HELP_CONCURRENCY = "Maximum number of SFTP files processed concurrently."
 
 
-def run(args):
+def run(args, **kwargs):
     sftp_to_gcs_cli = CLI(
         name="sftp-to-gcs",
         description=(
@@ -56,11 +56,11 @@ def run(args):
             warning_level=[]
         ),
         allow_unknown=False,
-        run=lambda config: asyncio.run(ingest.run(**vars(config))),
+        run=lambda config, **kwargs: asyncio.run(ingest.run(**vars(config), **kwargs)),
 
     )
 
-    return sftp_to_gcs_cli.execute(args)
+    return sftp_to_gcs_cli.execute(args, **kwargs)
 
 
 def main():
