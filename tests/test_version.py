@@ -1,4 +1,4 @@
-from python_app_template import version
+from sftp_to_gcs import version
 
 
 def test_version():

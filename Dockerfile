@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------------------
 # BUILDER
 # ---------------------------------------------------------------------------------------
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.13-slim-bookworm AS builder
 
 VOLUME ["/root/.config"]
 
@@ -21,16 +21,12 @@ RUN uv pip install --system --upgrade pip && \
 # ---------------------------------------------------------------------------------------
 # PRODUCTION IMAGE
 # ---------------------------------------------------------------------------------------
-FROM python:3.12-slim-bookworm AS prod
+FROM python:3.13-slim-bookworm AS prod
 
 ENV PYTHONUNBUFFERED=1
 
 # Copy the pre-compiled packages from builder
 COPY --from=builder /install /usr/local
-
-# APACHE BEAM INTEGRATION (Uncomment if needed)
-# COPY --from=apache/beam_python3.12_sdk:2.71.0 /opt/apache/beam /opt/apache/beam
-# ENTRYPOINT ["/opt/apache/beam/boot"]
 
 WORKDIR /opt/project
 
