@@ -1,4 +1,4 @@
-from python_app_template.cli.main import main
+from sftp_to_gcs.cli.main import main
 
 
 def test_main():

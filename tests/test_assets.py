@@ -1,7 +1,7 @@
 import json
 from importlib import resources
 
-from python_app_template import assets
+from sftp_to_gcs import assets
 
 
 def test_data():
