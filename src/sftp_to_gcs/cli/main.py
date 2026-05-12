@@ -1,6 +1,8 @@
 import sys
 import logging
 
+import asyncio
+
 from gfw.common.cli import CLI
 from gfw.common.cli.command import Option
 from gfw.common.logging import LoggerConfig
@@ -54,7 +56,7 @@ def run(args):
             warning_level=[]
         ),
         allow_unknown=False,
-        run=lambda config: ingest.run(**vars(config)),
+        run=lambda config: asyncio.run(ingest.run(**vars(config))),
 
     )
 
