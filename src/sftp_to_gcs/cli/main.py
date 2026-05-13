@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 HELP_PROJECT = "GCP project id."
 HELP_SFTP_HOST = "SFTP server hostname."
+HELP_SFTP_PORT = "SFTP server port."
 HELP_SFTP_USER = "SFTP username."
 HELP_SFTP_PASS_ENV = "Name of the environment variable containing the SFTP password."
 HELP_SFTP_DIRECTORY = "Remote SFTP directory to read files from."
@@ -34,6 +35,7 @@ def run(args):
         options=[
             Option("--project", type=str, required=True, help=HELP_PROJECT),
             Option("--sftp-host", type=str, required=True, help=HELP_SFTP_HOST),
+            Option("--sftp-port", type=int, default=22, help=HELP_SFTP_PORT),
             Option("--sftp-user", type=str, required=True, help=HELP_SFTP_USER),
             Option("--sftp-pass-env", type=str, required=True, help=HELP_SFTP_PASS_ENV),
             Option("--sftp-directory", type=str, required=True, help=HELP_SFTP_DIRECTORY),

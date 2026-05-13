@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 def run(
     project: str,
     sftp_host: str,
+    sftp_port: int,
     sftp_user: str,
     sftp_directory: str,
     sftp_pass_env: str,
