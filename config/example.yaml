@@ -1,0 +1,10 @@
+project: world-fishing-827
+sftp_host: sftp://s-6f8262c824f94eeea.server.transfer.eu-west-1.amazonaws.com
+sftp_user: global-fishing-watch-nmea
+sftp_pass_env: KPLER_SFTP_PASSWORD
+sftp_directory: /global-fishing-watch-nmea
+datetime_from: "2026-05-11T20:00"
+datetime_to: "2026-05-11T23:00"
+gcs_path: gs://my-bucket/kpler-sftp/
+chunk_size: 12500
+concurrency: 20
