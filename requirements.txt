@@ -10,6 +10,8 @@ aiosignal==1.4.0
     # via aiohttp
 asyncio==4.0.0
     # via sftp-to-gcs (pyproject.toml)
+asyncssh==2.23.0
+    # via sftp-to-gcs (pyproject.toml)
 attrs==26.1.0
     # via aiohttp
 backoff==2.2.1
@@ -26,6 +28,7 @@ cloudpathlib==0.24.0
     # via sftp-to-gcs (pyproject.toml)
 cryptography==48.0.0
     # via
+    #   asyncssh
     #   gcloud-aio-auth
     #   google-auth
 frozenlist==1.8.0
@@ -117,6 +120,10 @@ rich-argparse==1.7.2
     # via sftp-to-gcs (pyproject.toml)
 rsa==4.9.1
     # via gcloud-aio-storage
+tenacity==9.1.4
+    # via sftp-to-gcs (pyproject.toml)
+typing-extensions==4.15.0
+    # via asyncssh
 urllib3==2.7.0
     # via requests
 yarl==1.23.0

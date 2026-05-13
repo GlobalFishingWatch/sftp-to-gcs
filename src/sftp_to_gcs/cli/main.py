@@ -14,7 +14,6 @@ from sftp_to_gcs import ingest
 
 logger = logging.getLogger(__name__)
 
-HELP_PROJECT = "GCP project id."
 HELP_SFTP_HOST = "SFTP server hostname."
 HELP_SFTP_PORT = "SFTP server port."
 HELP_SFTP_USER = "SFTP username."
@@ -35,7 +34,6 @@ def run(args, **kwargs):
         ),
         formatter=default_formatter(max_pos=100),
         options=[
-            Option("--project", type=str, required=True, help=HELP_PROJECT),
             Option("--sftp-host", type=str, required=True, help=HELP_SFTP_HOST),
             Option("--sftp-port", type=int, default=22, help=HELP_SFTP_PORT),
             Option("--sftp-user", type=str, required=True, help=HELP_SFTP_USER),
