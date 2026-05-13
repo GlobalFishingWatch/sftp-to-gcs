@@ -15,7 +15,7 @@
   </a>
 </p>
 
-A lightweight CLI tool that transfers files from an SFTP server to Google Cloud Storage.
+A lightweight and dockerized CLI tool that transfers files from an SFTP server to Google Cloud Storage.
 
 **Features**:
 * :white_check_mark: Transfer files from SFTP to GCS with configurable chunk size.
