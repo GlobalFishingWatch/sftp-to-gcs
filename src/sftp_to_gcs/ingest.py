@@ -86,7 +86,7 @@ async def run(
     base_path = _build_base_path(gcs_path, datetime_from_dt, datetime_to_dt)
     day_folders = [_gcs_day_folder(base_path, f) for f in filenames]
 
-    async with storage_factory(project=project) as gcs_client:
+    async with storage_factory() as gcs_client:
         results = await asyncio.gather(*[
             _success_file_exists(gcs_client, day_folder, f)
             for f, day_folder in zip(filenames, day_folders)
