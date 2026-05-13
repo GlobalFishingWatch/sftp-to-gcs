@@ -1,6 +1,8 @@
+from __future__ import annotations
 import os
 import logging
-from typing import Optional, Any, Callable
+from typing import Callable, Any
+from types import SimpleNamespace
 
 import asyncio
 import asyncssh
@@ -14,17 +16,7 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-SFTP_FILENAME_FORMAT = "ais-%Y-%m-%d-%H-%M.nmea"
 SUCCESS_FILE_PREFIX = "_SUCCESS_"
-
-
-def _generate_filenames(datetime_from: datetime, datetime_to: datetime) -> list[str]:
-    filenames = []
-    current = datetime_from
-    while current < datetime_to:
-        filenames.append(current.strftime(SFTP_FILENAME_FORMAT))
-        current += timedelta(minutes=5)
-    return filenames
 
 
 def _build_base_path(gcs_path: GSPath, datetime_from: datetime, datetime_to: datetime) -> GSPath:
@@ -32,207 +24,275 @@ def _build_base_path(gcs_path: GSPath, datetime_from: datetime, datetime_to: dat
     return gcs_path / range_folder
 
 
-def _gcs_day_folder(base_path: GSPath, filename: str) -> GSPath:
-    # ais-2026-05-11-20-50.nmea → 2026-05-11
-    file_dt = datetime.strptime(filename, SFTP_FILENAME_FORMAT)
-    day_folder = f"nmea-{file_dt.strftime('%Y-%m-%d')}"
-    return base_path / day_folder
+async def run(namespace: SimpleNamespace, **kwargs: Any) -> None:
+    ingester = SftpToGcsIngester.from_namespace(namespace, **kwargs)
+    await ingester.run(namespace.datetime_from, namespace.datetime_to)
 
 
-async def _success_file_exists(gcs_client: Storage, day_folder: GSPath, filename: str) -> bool:
-    success_path = day_folder / f"{SUCCESS_FILE_PREFIX}{filename}"
-    try:
-        await gcs_client.download_metadata(
-            success_path.bucket,
-            success_path.blob,
+class SftpToGcsIngester:
+    """Downloads files from an SFTP server and writes them as chunked AVRO files to GCS.
+
+    Files are expected to be newline-delimited, streamed line by line to avoid loading
+    entire files into memory, and split into chunks of a configurable size.
+    Each chunk is written as a separate AVRO file to a GCS path structured as:
+
+        {gcs_path}/{datetime_from}--{datetime_to}/{date}/{time}_{uuid}.avro
+
+    Resumability is supported via success files written to GCS after each SFTP
+    file is fully processed. On restart, already-completed files are skipped.
+
+    Args:
+        sftp_host:
+            SFTP server hostname.
+
+        sftp_port:
+            SFTP server port.
+
+        sftp_user:
+            SFTP username.
+
+        sftp_pass:
+            SFTP password.
+
+        sftp_directory:
+            Remote SFTP directory to read files from.
+
+        sftp_filename_format:
+            SFTP filename format using strptime directives
+            (e.g. ``ais-%Y-%m-%d-%H-%M.nmea``).
+
+        gcs_path:
+            Destination GCS base path (e.g. ``gs://bucket/dir/``).
+
+        chunk_size:
+            Number of lines per output AVRO file.
+
+        concurrency:
+            Maximum number of SFTP files processed concurrently.
+
+        storage_factory:
+            Factory callable for creating a GCS Storage client.
+            Defaults to :class:`~gcloud.aio.storage.Storage`. Override for testing.
+
+        sftp_factory:
+            Factory callable for creating an SFTP connection.
+            Defaults to :func:`asyncssh.connect`. Override for testing.
+    """
+    def __init__(
+        self,
+        sftp_host: str,
+        sftp_port: int,
+        sftp_user: str,
+        sftp_pass: str,
+        sftp_directory: str,
+        sftp_filename_format: str,
+        gcs_path: GSPath,
+        chunk_size: int,
+        concurrency: int,
+        storage_factory: Callable = Storage,
+        sftp_factory: Callable = asyncssh.connect,
+    ):
+        self._sftp_host = sftp_host
+        self._sftp_port = sftp_port
+        self._sftp_user = sftp_user
+        self._sftp_pass = sftp_pass
+        self._sftp_directory = sftp_directory
+        self._sftp_filename_format = sftp_filename_format
+        self._gcs_path = gcs_path
+        self._chunk_size = chunk_size
+        self._semaphore = asyncio.Semaphore(concurrency)
+        self._storage_factory = storage_factory
+        self._sftp_factory = sftp_factory
+
+    @classmethod
+    def from_namespace(cls, namespace: SimpleNamespace, **kwargs: Any) -> SftpToGcsIngester:
+        sftp_pass = os.environ.get(namespace.sftp_pass_env)
+        if not sftp_pass:
+            raise ValueError(f"'{namespace.sftp_pass_env}' environment variable is not set")
+
+        return cls(
+            sftp_host=namespace.sftp_host,
+            sftp_port=namespace.sftp_port,
+            sftp_user=namespace.sftp_user,
+            sftp_pass=sftp_pass,
+            sftp_directory=namespace.sftp_directory,
+            sftp_filename_format=namespace.sftp_filename_format,
+            gcs_path=GSPath(namespace.gcs_path),
+            chunk_size=namespace.chunk_size,
+            concurrency=namespace.concurrency,
+            **kwargs,
         )
-        return True
-    except aiohttp.ClientResponseError as e:
-        if e.status == 404:
-            return False
-        raise
 
+    async def run(self, datetime_from: str, datetime_to: str) -> None:
+        datetime_from_dt = datetime.fromisoformat(datetime_from)
+        datetime_to_dt = datetime.fromisoformat(datetime_to)
 
-def _is_transient(exc: Exception) -> bool:
-    if isinstance(exc, aiohttp.ClientResponseError):
-        return exc.status >= 500
+        logger.info("Generating filenames in range [%s, %s]...", datetime_from, datetime_to)
+        filenames = self._generate_filenames(datetime_from_dt, datetime_to_dt)
+        logger.info("Generated %d filenames to process", len(filenames))
 
-    if isinstance(exc, asyncssh.SFTPError):
-        return exc.code not in (
-            asyncssh.FX_NO_SUCH_FILE,
-            asyncssh.FX_PERMISSION_DENIED,
+        base_path = _build_base_path(self._gcs_path, datetime_from_dt, datetime_to_dt)
+        day_folders = {f: self._gcs_day_folder(base_path, f) for f in filenames}
+
+        logger.info("Checking for SUCCESS files...")
+        async with self._storage_factory() as gcs_client:
+            results = await asyncio.gather(*[
+                self._success_file_exists(gcs_client, day_folders[f], f)
+                for f in filenames
+            ])
+            filenames_to_process = [f for f, exists in zip(filenames, results) if not exists]
+
+        logger.info(
+            "%d files to process, %d already complete",
+            len(filenames_to_process),
+            len(filenames) - len(filenames_to_process),
         )
 
-    return False
+        if not filenames_to_process:
+            logger.info("Nothing to do, exiting")
+            return
 
+        async with self._sftp_factory(
+            self._sftp_host,
+            port=self._sftp_port,
+            username=self._sftp_user,
+            password=self._sftp_pass,
+            known_hosts=None,
+        ) as conn:
+            async with conn.start_sftp_client() as sftp:
+                async with self._storage_factory() as gcs_client:
+                    async with asyncio.TaskGroup() as tg:
+                        for filename in filenames_to_process:
+                            tg.create_task(
+                                self._process_file(
+                                    sftp=sftp,
+                                    gcs_client=gcs_client,
+                                    filename=filename,
+                                    day_folder=day_folders[filename],
+                                )
+                            )
 
-@retry(
-    retry=retry_if_exception(_is_transient),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-)
-async def _process_file(
-    sftp,
-    filename: str,
-    sftp_directory: str,
-    gcs_client: Storage,
-    day_folder: GSPath,
-    semaphore: asyncio.Semaphore,
-    chunk_size: int,
-) -> None:
-    async with semaphore:
-        logger.info("Processing %s", filename)
-        remote_path = f"{sftp_directory}/{filename}"
-        queue = asyncio.Queue(maxsize=5)
-
-        producer_task = asyncio.create_task(
-            _producer(sftp, remote_path, queue, chunk_size)
-        )
+    async def _success_file_exists(
+        self, gcs_client: Storage, day_folder: GSPath, filename: str
+    ) -> bool:
+        success_path = day_folder / f"{SUCCESS_FILE_PREFIX}{filename}"
         try:
-            await _consumer(queue, gcs_client, day_folder, filename)
-        except (asyncssh.SFTPError, aiohttp.ClientResponseError):
-            producer_task.cancel()
+            await gcs_client.download_metadata(
+                success_path.bucket,
+                success_path.blob,
+            )
+            return True
+        except aiohttp.ClientResponseError as e:
+            if e.status == 404:
+                return False
             raise
 
-        await producer_task
-        # await _write_success_file(gcs_client, day_folder, filename)
-        logger.info("Finished processing %s", filename)
+    def _is_transient(self, exc: Exception) -> bool:
+        if isinstance(exc, aiohttp.ClientResponseError):
+            return exc.status >= 500
 
+        if isinstance(exc, asyncssh.SFTPError):
+            return exc.code not in (
+                asyncssh.FX_NO_SUCH_FILE,
+                asyncssh.FX_PERMISSION_DENIED,
+            )
 
-async def _producer(
-    sftp,
-    remote_path: str,
-    queue: asyncio.Queue,
-    chunk_size: int,
-) -> None:
-    logger.info("Reading file %s", remote_path)
-    chunk = []
-    try:
-        async with sftp.open(remote_path, "rb") as f:
-            buffer = b""
-            while True:
-                data = await f.read(65536)  # 64KB at a time
-                if not data:
-                    break
+        return False
 
-                buffer += data
-                lines = buffer.split(b"\n")
-                buffer = lines.pop()  # keep incomplete last line
+    async def _process_file(
+        self,
+        sftp,
+        gcs_client: Storage,
+        filename: str,
+        day_folder: GSPath,
+    ) -> None:
+        @retry(
+            retry=retry_if_exception(self._is_transient),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+        )
+        async def _run():
+            async with self._semaphore:
+                logger.info("Processing %s", filename)
+                remote_path = f"{self._sftp_directory}/{filename}"
+                queue = asyncio.Queue(maxsize=5)
 
-                for raw_line in lines:
-                    line = raw_line.decode("utf-8").strip()
-                    if not line:
-                        continue
+                async with asyncio.TaskGroup() as tg:
+                    tg.create_task(self._producer(sftp, remote_path, queue))
+                    tg.create_task(self._consumer(queue, gcs_client, day_folder, filename))
 
-                    chunk.append(line)
-                    if len(chunk) == chunk_size:
-                        await queue.put(chunk)
-                        chunk = []
+                await self._write_success_file(gcs_client, day_folder, filename)
+                logger.info("Finished processing %s", filename)
 
-            # handle remaining buffer
-            if buffer:
-                line = buffer.decode("utf-8").strip()
-                if line:
-                    chunk.append(line)
-        if chunk:
-            await queue.put(chunk)
-    except (asyncssh.SFTPError, asyncssh.SFTPNoSuchFile, UnicodeDecodeError):
-        logger.exception("Error reading file %s", remote_path)
-        raise
-    finally:
-        await queue.put(None)
+        await _run()
 
+    async def _producer(self, sftp, remote_path: str, queue: asyncio.Queue) -> None:
+        logger.info("Reading file %s", remote_path)
+        chunk = []
+        try:
+            async with sftp.open(remote_path, "rb") as f:
+                buffer = b""
+                while True:
+                    data = await f.read(65536)
+                    if not data:
+                        break
 
-async def _consumer(
-    queue: asyncio.Queue,
-    gcs_client: Storage,
-    day_folder: GSPath,
-    filename: str,
-) -> None:
-    while True:
-        chunk = await queue.get()
-        if chunk is None:
-            break
-        # TODO: serialize to AVRO and write to GCS (next ticket)
-        logger.info("Received chunk of %d lines from %s", len(chunk), filename)
+                    buffer += data
+                    lines = buffer.split(b"\n")
+                    buffer = lines.pop()
 
+                    for raw_line in lines:
+                        line = raw_line.decode("utf-8").strip()
+                        if not line:
+                            continue
 
-async def run(
-    sftp_host: str,
-    sftp_port: int,
-    sftp_user: str,
-    sftp_directory: str,
-    sftp_pass_env: str,
-    datetime_from: str,
-    datetime_to: str,
-    gcs_path: str,
-    chunk_size: int = 12_500,
-    concurrency: int = 20,
-    storage_factory: Callable = Storage,
-    sftp_factory: Callable = asyncssh.connect,
-    unknown_unparsed_args: Optional[list[str]] = None,
-    unknown_parsed_args: Optional[dict[str, Any]] = None,
-) -> None:
-    gcs_path = GSPath(gcs_path)
+                        chunk.append(line)
+                        if len(chunk) == self._chunk_size:
+                            await queue.put(chunk)
+                            chunk = []
 
-    datetime_from_dt = datetime.fromisoformat(datetime_from)
-    datetime_to_dt = datetime.fromisoformat(datetime_to)
+                if buffer:
+                    line = buffer.decode("utf-8").strip()
+                    if line:
+                        chunk.append(line)
 
-    logger.info(
-        "Generating all filenames in the range: [{}, {}]...".format(datetime_from, datetime_to))
+            if chunk:
+                await queue.put(chunk)
+        except (asyncssh.SFTPError, UnicodeDecodeError):
+            logger.exception("Error reading file %s", remote_path)
+            raise
+        finally:
+            await queue.put(None)
 
-    filenames = _generate_filenames(datetime_from_dt, datetime_to_dt)
-    logger.info("Generated %d filenames to process", len(filenames))
+    async def _consumer(
+        self,
+        queue: asyncio.Queue,
+        gcs_client: Storage,
+        day_folder: GSPath,
+        filename: str,
+    ) -> None:
+        while True:
+            chunk = await queue.get()
+            if chunk is None:
+                break
+            # TODO: serialize to AVRO and write to GCS (next ticket)
+            logger.info("Received chunk of %d lines from %s", len(chunk), filename)
 
-    sftp_pass = os.environ.get(sftp_pass_env)
-    if not sftp_pass:
-        raise ValueError(f"'{sftp_pass_env}' environment variable is not set")
+    def _generate_filenames(self, datetime_from: datetime, datetime_to: datetime) -> list[str]:
+        filenames = []
+        current = datetime_from
+        while current < datetime_to:
+            filenames.append(current.strftime(self._sftp_filename_format))
+            current += timedelta(minutes=5)
 
-    logger.info("Checking for SUCCESS files existence...")
-    base_path = _build_base_path(gcs_path, datetime_from_dt, datetime_to_dt)
-    day_folders = {f: _gcs_day_folder(base_path, f) for f in filenames}
+        return filenames
 
-    async with storage_factory() as gcs_client:
-        results = await asyncio.gather(*[
-            _success_file_exists(gcs_client, day_folders[f], f)
-            for f in filenames
-        ])
-        filenames_to_process = [f for f, exists in zip(filenames, results) if not exists]
+    def _gcs_day_folder(self, base_path: GSPath, filename: str) -> GSPath:
+        file_dt = datetime.strptime(filename, self._sftp_filename_format)
+        return base_path / file_dt.strftime('%Y-%m-%d')
 
-    logger.info(
-        "%d files to process, %d already complete",
-        len(filenames_to_process),
-        len(filenames) - len(filenames_to_process),
-    )
-
-    if not filenames_to_process:
-        logger.info("Nothing to do, exiting")
-        return
-
-    logger.info("Connecting to the SFTP...")
-    semaphore = asyncio.Semaphore(concurrency)
-
-    async with sftp_factory(
-        sftp_host,
-        port=sftp_port,
-        username=sftp_user,
-        password=sftp_pass,
-        known_hosts=None,
-    ) as conn:
-        async with conn.start_sftp_client() as sftp:
-            async with storage_factory() as gcs_client:
-                tasks = [
-                    asyncio.create_task(
-                        _process_file(
-                            sftp=sftp,
-                            filename=filename,
-                            sftp_directory=sftp_directory,
-                            gcs_client=gcs_client,
-                            day_folder=day_folders[filename],
-                            semaphore=semaphore,
-                            chunk_size=chunk_size,
-                        )
-                    )
-                    for filename in filenames_to_process
-                ]
-                await asyncio.gather(*tasks)
+    async def _write_success_file(
+        self, gcs_client: Storage, day_folder: GSPath, filename: str
+    ) -> None:
+        # TODO: implement in next ticket
+        pass

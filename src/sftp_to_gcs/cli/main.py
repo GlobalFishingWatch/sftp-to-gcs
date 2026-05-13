@@ -1,5 +1,6 @@
 import sys
 import logging
+from typing import Any
 
 import asyncio
 
@@ -19,6 +20,7 @@ HELP_SFTP_PORT = "SFTP server port."
 HELP_SFTP_USER = "SFTP username."
 HELP_SFTP_PASS_ENV = "Name of the environment variable containing the SFTP password."
 HELP_SFTP_DIRECTORY = "Remote SFTP directory to read files from."
+HELP_SFTP_FILENAME = "SFTP filename format (e.g. ais-%Y-%m-%d-%H-%M.nmea)."
 HELP_DATETIME_FROM = "Start datetime of the range to process (inclusive), format YYYY-MM-DDTHH:MM."
 HELP_DATETIME_TO = "End datetime of the range to process (exclusive), format YYYY-MM-DDTHH:MM."
 HELP_GCS_PATH = "Destination GCS path where AVRO files will be written (e.g. gs://bucket/dir/)."
@@ -26,7 +28,7 @@ HELP_CHUNK_SIZE = "Number of lines per output AVRO file."
 HELP_CONCURRENCY = "Maximum number of SFTP files processed concurrently."
 
 
-def run(args, **kwargs):
+def run(args: list, **kwargs: Any) -> Any:
     sftp_to_gcs_cli = CLI(
         name="sftp-to-gcs",
         description=(
@@ -39,10 +41,11 @@ def run(args, **kwargs):
             Option("--sftp-user", type=str, required=True, help=HELP_SFTP_USER),
             Option("--sftp-pass-env", type=str, required=True, help=HELP_SFTP_PASS_ENV),
             Option("--sftp-directory", type=str, required=True, help=HELP_SFTP_DIRECTORY),
+            Option("--sftp-filename-format", type=str, required=True, help=HELP_SFTP_FILENAME),
             Option("--datetime-from", type=str, required=True, help=HELP_DATETIME_FROM),
             Option("--datetime-to", type=str, required=True, help=HELP_DATETIME_TO),
             Option("--gcs-path", type=str, required=True, help=HELP_GCS_PATH),
-            Option("--chunk-size", type=int, default=12_500, help=HELP_CHUNK_SIZE),
+            Option("--chunk-size", type=int, default=15_000, help=HELP_CHUNK_SIZE),
             Option("--concurrency", type=int, default=20, help=HELP_CONCURRENCY),
         ],
         subcommands=[],
@@ -54,7 +57,7 @@ def run(args, **kwargs):
             warning_level=[]
         ),
         allow_unknown=False,
-        run=lambda config, **kwargs: asyncio.run(ingest.run(**vars(config), **kwargs)),
+        run=lambda config, **kwargs: asyncio.run(ingest.run(config, **kwargs)),
 
     )
 
