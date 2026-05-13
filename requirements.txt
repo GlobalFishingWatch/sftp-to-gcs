@@ -31,6 +31,8 @@ cryptography==48.0.0
     #   asyncssh
     #   gcloud-aio-auth
     #   google-auth
+fastavro==1.12.2
+    # via sftp-to-gcs (pyproject.toml)
 frozenlist==1.8.0
     # via
     #   aiohttp

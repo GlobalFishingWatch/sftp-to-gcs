@@ -32,6 +32,7 @@ dependencies = [
     "asyncio~=4.0",
     "asyncssh~=2.23",
     "cloudpathlib[gs]~=0.24",
+    "fastavro~=1.12",
     "gcloud-aio-storage~=9.6",
     "gfw-common~=0.10",
     "pyyaml~=6.0",

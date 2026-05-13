@@ -24,6 +24,7 @@ HELP_SFTP_FILENAME = "SFTP filename format (e.g. ais-%Y-%m-%d-%H-%M.nmea)."
 HELP_DATETIME_FROM = "Start datetime of the range to process (inclusive), format YYYY-MM-DDTHH:MM."
 HELP_DATETIME_TO = "End datetime of the range to process (exclusive), format YYYY-MM-DDTHH:MM."
 HELP_GCS_PATH = "Destination GCS path where AVRO files will be written (e.g. gs://bucket/dir/)."
+HELP_GCS_RECORD_SIZE = "Number of sentences per AVRO record."
 HELP_CHUNK_SIZE = "Number of lines per output AVRO file."
 HELP_CONCURRENCY = "Maximum number of SFTP files processed concurrently."
 
@@ -45,7 +46,8 @@ def run(args: list, **kwargs: Any) -> Any:
             Option("--datetime-from", type=str, required=True, help=HELP_DATETIME_FROM),
             Option("--datetime-to", type=str, required=True, help=HELP_DATETIME_TO),
             Option("--gcs-path", type=str, required=True, help=HELP_GCS_PATH),
-            Option("--chunk-size", type=int, default=15_000, help=HELP_CHUNK_SIZE),
+            Option("--gcs-record-size", type=int, default=20, help=HELP_GCS_RECORD_SIZE),
+            Option("--chunk-size", type=int, default=12_500, help=HELP_CHUNK_SIZE),
             Option("--concurrency", type=int, default=20, help=HELP_CONCURRENCY),
         ],
         subcommands=[],
