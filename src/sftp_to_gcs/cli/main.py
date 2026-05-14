@@ -20,7 +20,7 @@ HELP_SFTP_PORT = "SFTP server port."
 HELP_SFTP_USER = "SFTP username."
 HELP_SFTP_PASS_ENV = "Name of the environment variable containing the SFTP password."
 HELP_SFTP_DIRECTORY = "Remote SFTP directory to read files from."
-HELP_SFTP_FILENAME = "SFTP filename format (e.g. ais-%Y-%m-%d-%H-%M.nmea)."
+HELP_SFTP_FILENAME = "SFTP filename format (e.g. ais-%%Y-%%m-%%d-%%H-%%M.nmea)."
 HELP_DATETIME_FROM = "Start datetime of the range to process (inclusive), format YYYY-MM-DDTHH:MM."
 HELP_DATETIME_TO = "End datetime of the range to process (exclusive), format YYYY-MM-DDTHH:MM."
 HELP_SOURCE_NAME = "Source name to include in AVRO record attributes."
@@ -56,6 +56,7 @@ def run(args: list, **kwargs: Any) -> Any:
         version=__version__,
         examples=[
             "sftp_to_gcs -h",
+            "sftp_to_gcs -c config/example.yaml",
         ],
         logger_config=LoggerConfig(
             warning_level=[]
