@@ -89,6 +89,7 @@ class SftpToGcsIngester:
         sftp_pass: str,
         sftp_directory: str,
         sftp_filename_format: str,
+        source_name: str,
         gcs_path: GSPath,
         gcs_record_size: int = 20,
         chunk_size: int = 12500,
@@ -102,6 +103,7 @@ class SftpToGcsIngester:
         self._sftp_pass = sftp_pass
         self._sftp_directory = sftp_directory
         self._sftp_filename_format = sftp_filename_format
+        self._source_name = source_name
         self._gcs_path = gcs_path
         self._gcs_record_size = gcs_record_size
         self._chunk_size = chunk_size
@@ -122,6 +124,7 @@ class SftpToGcsIngester:
             sftp_pass=sftp_pass,
             sftp_directory=namespace.sftp_directory,
             sftp_filename_format=namespace.sftp_filename_format,
+            source_name=namespace.source_name,
             gcs_path=GSPath(namespace.gcs_path),
             gcs_record_size=namespace.gcs_record_size,
             chunk_size=namespace.chunk_size,
@@ -301,6 +304,7 @@ class SftpToGcsIngester:
                     attributes={
                         "protocol": "SFTP",
                         "source_host": self._sftp_host,
+                        "source_name": self._source_name,
                         # "time": publish_time.isoformat(),
                     },
                 )
