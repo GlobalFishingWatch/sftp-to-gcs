@@ -3,6 +3,7 @@ import os
 import logging
 from typing import Callable, Any
 from types import SimpleNamespace
+from datetime import timezone
 
 import asyncio
 import asyncssh
@@ -13,6 +14,8 @@ from gcloud.aio.storage import Storage
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from datetime import datetime, timedelta
+
+from sftp_to_gcs.avro import build_record, serialize_chunk, output_filename
 
 logger = logging.getLogger(__name__)
 
@@ -86,9 +89,11 @@ class SftpToGcsIngester:
         sftp_pass: str,
         sftp_directory: str,
         sftp_filename_format: str,
+        source_name: str,
         gcs_path: GSPath,
-        chunk_size: int,
-        concurrency: int,
+        gcs_record_size: int = 20,
+        chunk_size: int = 12500,
+        concurrency: int = 20,
         storage_factory: Callable = Storage,
         sftp_factory: Callable = asyncssh.connect,
     ):
@@ -98,7 +103,9 @@ class SftpToGcsIngester:
         self._sftp_pass = sftp_pass
         self._sftp_directory = sftp_directory
         self._sftp_filename_format = sftp_filename_format
+        self._source_name = source_name
         self._gcs_path = gcs_path
+        self._gcs_record_size = gcs_record_size
         self._chunk_size = chunk_size
         self._semaphore = asyncio.Semaphore(concurrency)
         self._storage_factory = storage_factory
@@ -117,7 +124,9 @@ class SftpToGcsIngester:
             sftp_pass=sftp_pass,
             sftp_directory=namespace.sftp_directory,
             sftp_filename_format=namespace.sftp_filename_format,
+            source_name=namespace.source_name,
             gcs_path=GSPath(namespace.gcs_path),
+            gcs_record_size=namespace.gcs_record_size,
             chunk_size=namespace.chunk_size,
             concurrency=namespace.concurrency,
             **kwargs,
@@ -161,6 +170,9 @@ class SftpToGcsIngester:
         ) as conn:
             async with conn.start_sftp_client() as sftp:
                 async with self._storage_factory() as gcs_client:
+                    # TODO: refactor to a session class holding runtime state gcs_client.
+                    # So we don't have to pass around the instance or do this.
+                    self._gcs_client = gcs_client
                     async with asyncio.TaskGroup() as tg:
                         for filename in filenames_to_process:
                             tg.create_task(
@@ -197,6 +209,9 @@ class SftpToGcsIngester:
                 asyncssh.FX_PERMISSION_DENIED,
             )
 
+        if isinstance(exc, ConnectionResetError):
+            return True
+
         return False
 
     async def _process_file(
@@ -215,13 +230,17 @@ class SftpToGcsIngester:
             async with self._semaphore:
                 logger.info("Processing %s", filename)
                 remote_path = f"{self._sftp_directory}/{filename}"
+                publish_time = datetime.strptime(
+                    filename, self._sftp_filename_format
+                ).replace(tzinfo=timezone.utc)
+
                 queue = asyncio.Queue(maxsize=5)
 
                 async with asyncio.TaskGroup() as tg:
                     tg.create_task(self._producer(sftp, remote_path, queue))
-                    tg.create_task(self._consumer(queue, gcs_client, day_folder, filename))
+                    tg.create_task(self._consumer(queue, day_folder, filename, publish_time))
 
-                await self._write_success_file(gcs_client, day_folder, filename)
+                await self._write_success_file(day_folder, filename)
                 logger.info("Finished processing %s", filename)
 
         await _run()
@@ -247,7 +266,7 @@ class SftpToGcsIngester:
                             continue
 
                         chunk.append(line)
-                        if len(chunk) == self._chunk_size:
+                        if len(chunk) == self._chunk_size * self._gcs_record_size:
                             await queue.put(chunk)
                             chunk = []
 
@@ -267,16 +286,41 @@ class SftpToGcsIngester:
     async def _consumer(
         self,
         queue: asyncio.Queue,
-        gcs_client: Storage,
         day_folder: GSPath,
         filename: str,
+        publish_time: datetime,
     ) -> None:
         while True:
             chunk = await queue.get()
             if chunk is None:
                 break
-            # TODO: serialize to AVRO and write to GCS (next ticket)
+
             logger.info("Received chunk of %d lines from %s", len(chunk), filename)
+
+            records = [
+                build_record(
+                    lines=chunk[i:i + self._gcs_record_size],
+                    publish_time=publish_time,
+                    attributes={
+                        "protocol": "SFTP",
+                        "source_host": self._sftp_host,
+                        "source_name": self._source_name,
+                        # "time": publish_time.isoformat(),
+                    },
+                )
+                for i in range(0, len(chunk), self._gcs_record_size)
+            ]
+
+            avro_bytes = serialize_chunk(records)
+
+            out_path = day_folder / output_filename(publish_time)
+            await self._gcs_client.upload(
+                out_path.bucket,
+                out_path.blob,
+                avro_bytes,
+                content_type="application/octet-stream",
+            )
+            logger.info("Written %s", out_path)
 
     def _generate_filenames(self, datetime_from: datetime, datetime_to: datetime) -> list[str]:
         filenames = []
@@ -291,8 +335,12 @@ class SftpToGcsIngester:
         file_dt = datetime.strptime(filename, self._sftp_filename_format)
         return base_path / file_dt.strftime('%Y-%m-%d')
 
-    async def _write_success_file(
-        self, gcs_client: Storage, day_folder: GSPath, filename: str
-    ) -> None:
-        # TODO: implement in next ticket
-        pass
+    async def _write_success_file(self, day_folder: GSPath, filename: str) -> None:
+        success_path = day_folder / f"{SUCCESS_FILE_PREFIX}{filename}"
+        await self._gcs_client.upload(
+            success_path.bucket,
+            success_path.blob,
+            b"",
+            content_type="text/plain",
+        )
+        logger.info("Written success file %s", success_path)
