@@ -89,6 +89,25 @@ def test_run_processes_files_when_none_complete(monkeypatch):
     )
 
 
+def test_run_reads_password_from_file(tmp_path):
+    secret = tmp_path / "sftp-password"
+    secret.write_text("s3cr3t")
+    args = [
+        "--sftp-host", "sftp.example.com",
+        "--sftp-user", "user",
+        "--sftp-pass-path", str(secret),
+        "--sftp-directory", "/data",
+        "--sftp-filename-format", "ais-%Y-%m-%d-%H-%M.nmea",
+        "--datetime-from", "2026-04-21T00:00",
+        "--datetime-to", "2026-04-21T00:10",
+        "--source-name", "kpler",
+        "--gcs-path", "gs://my-bucket/nmea-ftp-backfill/",
+        "--chunk-size", "12500",
+        "--concurrency", "20",
+    ]
+    main.run(args, storage_factory=mock_storage_factory(exists=True))
+
+
 def test_run_raises_value_error_when_sftp_pass_not_set(monkeypatch):
     monkeypatch.delenv("SFTP_PASS", raising=False)
     args = [
@@ -104,5 +123,5 @@ def test_run_raises_value_error_when_sftp_pass_not_set(monkeypatch):
         "--chunk-size", "12500",
         "--concurrency", "20",
     ]
-    with pytest.raises(ValueError, match="'SFTP_PASS' environment variable is not set"):
+    with pytest.raises(ValueError, match="Environment variable 'SFTP_PASS' not found"):
         main.run(args)

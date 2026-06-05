@@ -12,7 +12,7 @@ namespaces = false
 
 [project]
 name = "sftp-to-gcs"
-version = "0.1.0"
+version = "0.2.0"
 description = "A lightweight and dockerized CLI tool that transfers files from an SFTP server to Google Cloud Storage."
 readme = "README.md"
 license = "Apache-2.0"
@@ -34,7 +34,7 @@ dependencies = [
     "cloudpathlib[gs]~=0.24",
     "fastavro~=1.12",
     "gcloud-aio-storage~=9.6",
-    "gfw-common~=0.10",
+    "gfw-common~=0.11",
     "pyyaml~=6.0",
     "rich~=14.0",
     "rich-argparse~=1.6",

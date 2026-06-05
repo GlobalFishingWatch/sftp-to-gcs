@@ -41,7 +41,7 @@ gcloud-aio-auth==5.4.4
     # via gcloud-aio-storage
 gcloud-aio-storage==9.6.4
     # via sftp-to-gcs (pyproject.toml)
-gfw-common==0.10.0
+gfw-common==0.11.1
     # via sftp-to-gcs (pyproject.toml)
 google-api-core==2.30.3
     # via
