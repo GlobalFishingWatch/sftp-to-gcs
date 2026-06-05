@@ -173,3 +173,6 @@ test/
 
 # UV
 .python-version
+
+# Local development
+.secrets

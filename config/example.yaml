@@ -1,5 +1,6 @@
 sftp_host: s-6f8262c824f94eeea.server.transfer.eu-west-1.amazonaws.com
 sftp_user: global-fishing-watch-nmea
+sftp_pass_path: .secrets/sftp-password
 sftp_pass_env: KPLER_SFTP_PASSWORD
 sftp_directory: /global-fishing-watch-nmea
 sftp_filename_format: "ais-%Y-%m-%d-%H-%M.nmea"

@@ -32,6 +32,57 @@ async def run(namespace: SimpleNamespace, **kwargs: Any) -> None:
     await ingester.run(namespace.datetime_from, namespace.datetime_to)
 
 
+def load_sftp_password(sftp_pass_path: str | None, sftp_pass_env: str | None) -> str:
+    """Load the SFTP password from a secret file or an environment variable.
+
+    Tries the file first (intended for production, where a Kubernetes init container
+    writes the secret to a mounted volume). Falls back to the environment variable
+    if the file is not provided or does not exist (intended for local development).
+
+    Args:
+        sftp_pass_path:
+            Path to a file containing the password. Takes precedence over
+            ``sftp_pass_env`` when the file exists.
+
+        sftp_pass_env:
+            Name of the environment variable containing the password.
+
+    Returns:
+        The SFTP password as a stripped string.
+
+    Raises:
+        ValueError: If the file exists but is empty, if the environment variable
+            is not set, or if neither source is provided.
+    """
+    if sftp_pass_path is not None and os.path.exists(sftp_pass_path):
+        logger.info(f"Reading sFTP password from secret '{sftp_pass_path}'...")
+        # In production — file must exist AND have content
+        with open(sftp_pass_path) as f:
+            sftp_pass = f.read().strip()
+
+        if not sftp_pass:
+            raise ValueError(
+                f"Secret file '{sftp_pass_path}' exists but is empty. "
+                f"Check the init container fetched the secret correctly."
+            )
+
+        return sftp_pass
+
+    if sftp_pass_env is not None:
+        logger.info(f"Reading sFTP password from ENV variable '{sftp_pass_env}'...")
+        # Local dev — fall back to env var
+        sftp_pass = os.environ.get(sftp_pass_env)
+        if not sftp_pass:
+            raise ValueError(
+                f"Environment variable '{sftp_pass_env}' not found. "
+            )
+
+        return sftp_pass
+
+    raise ValueError(
+        "No sFTP password source provided: supply a secret file path or an env variable name.")
+
+
 class SftpToGcsIngester:
     """Downloads files from an SFTP server and writes them as chunked AVRO files to GCS.
 
@@ -113,9 +164,10 @@ class SftpToGcsIngester:
 
     @classmethod
     def from_namespace(cls, namespace: SimpleNamespace, **kwargs: Any) -> SftpToGcsIngester:
-        sftp_pass = os.environ.get(namespace.sftp_pass_env)
-        if not sftp_pass:
-            raise ValueError(f"'{namespace.sftp_pass_env}' environment variable is not set")
+        sftp_pass_path = namespace.sftp_pass_path
+        sftp_pass_env = namespace.sftp_pass_env
+
+        sftp_pass = load_sftp_password(sftp_pass_path, sftp_pass_env)
 
         return cls(
             sftp_host=namespace.sftp_host,
