@@ -195,46 +195,51 @@ class SftpToGcsIngester:
         base_path = _build_base_path(self._gcs_path, datetime_from_dt, datetime_to_dt)
         day_folders = {f: self._gcs_day_folder(base_path, f) for f in filenames}
 
-        logger.info("Checking for SUCCESS files...")
-        async with self._storage_factory() as gcs_client:
-            results = await asyncio.gather(*[
-                self._success_file_exists(gcs_client, day_folders[f], f)
-                for f in filenames
-            ])
-            filenames_to_process = [f for f, exists in zip(filenames, results) if not exists]
+        # Use a single shared HTTP session with unlimited connections so that
+        # high concurrency values don't exhaust the default aiohttp pool (limit=100).
+        # The semaphore already caps parallelism — the connector just needs to keep up.
+        connector = aiohttp.TCPConnector(limit=0)
+        async with aiohttp.ClientSession(connector=connector) as http_session:
+            logger.info("Checking for SUCCESS files...")
+            async with self._storage_factory(session=http_session) as gcs_client:
+                results = await asyncio.gather(*[
+                    self._success_file_exists(gcs_client, day_folders[f], f)
+                    for f in filenames
+                ])
+                filenames_to_process = [f for f, exists in zip(filenames, results) if not exists]
 
-        logger.info(
-            "%d files to process, %d already complete",
-            len(filenames_to_process),
-            len(filenames) - len(filenames_to_process),
-        )
+            logger.info(
+                "%d files to process, %d already complete",
+                len(filenames_to_process),
+                len(filenames) - len(filenames_to_process),
+            )
 
-        if not filenames_to_process:
-            logger.info("Nothing to do, exiting")
-            return
+            if not filenames_to_process:
+                logger.info("Nothing to do, exiting")
+                return
 
-        async with self._sftp_factory(
-            self._sftp_host,
-            port=self._sftp_port,
-            username=self._sftp_user,
-            password=self._sftp_pass,
-            known_hosts=None,
-        ) as conn:
-            async with conn.start_sftp_client() as sftp:
-                async with self._storage_factory() as gcs_client:
-                    # TODO: refactor to a session class holding runtime state gcs_client.
-                    # So we don't have to pass around the instance or do this.
-                    self._gcs_client = gcs_client
-                    async with asyncio.TaskGroup() as tg:
-                        for filename in filenames_to_process:
-                            tg.create_task(
-                                self._process_file(
-                                    sftp=sftp,
-                                    gcs_client=gcs_client,
-                                    filename=filename,
-                                    day_folder=day_folders[filename],
+            async with self._sftp_factory(
+                self._sftp_host,
+                port=self._sftp_port,
+                username=self._sftp_user,
+                password=self._sftp_pass,
+                known_hosts=None,
+            ) as conn:
+                async with conn.start_sftp_client() as sftp:
+                    async with self._storage_factory(session=http_session) as gcs_client:
+                        # TODO: refactor to a session class holding runtime state gcs_client.
+                        # So we don't have to pass around the instance or do this.
+                        self._gcs_client = gcs_client
+                        async with asyncio.TaskGroup() as tg:
+                            for filename in filenames_to_process:
+                                tg.create_task(
+                                    self._process_file(
+                                        sftp=sftp,
+                                        gcs_client=gcs_client,
+                                        filename=filename,
+                                        day_folder=day_folders[filename],
+                                    )
                                 )
-                            )
 
     async def _success_file_exists(
         self, gcs_client: Storage, day_folder: GSPath, filename: str
@@ -252,6 +257,9 @@ class SftpToGcsIngester:
             raise
 
     def _is_transient(self, exc: Exception) -> bool:
+        if isinstance(exc, asyncio.TimeoutError):
+            return True
+
         if isinstance(exc, aiohttp.ClientResponseError):
             return exc.status >= 500
 
