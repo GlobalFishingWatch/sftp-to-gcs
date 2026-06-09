@@ -12,7 +12,7 @@ namespaces = false
 
 [project]
 name = "sftp-to-gcs"
-version = "0.2.0"
+version = "0.2.1"
 description = "A lightweight and dockerized CLI tool that transfers files from an SFTP server to Google Cloud Storage."
 readme = "README.md"
 license = "Apache-2.0"
