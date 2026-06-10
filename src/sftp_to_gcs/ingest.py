@@ -290,9 +290,11 @@ class SftpToGcsIngester:
             async with self._semaphore:
                 logger.info("Processing %s", filename)
                 remote_path = f"{self._sftp_directory}/{filename}"
-                publish_time = datetime.strptime(
-                    filename, self._sftp_filename_format
-                ).replace(tzinfo=timezone.utc)
+                # Use the SFTP file mtime as publish_time.
+                # The mtime is set by the server when the file is closed, guaranteeing it is
+                # after every message in the batch was written.
+                file_attrs = await sftp.stat(remote_path)
+                publish_time = datetime.fromtimestamp(file_attrs.mtime, tz=timezone.utc)
 
                 queue = asyncio.Queue(maxsize=5)
 
