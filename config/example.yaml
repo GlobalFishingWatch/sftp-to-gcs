@@ -9,5 +9,5 @@ datetime_to: "2026-05-11T20:10"
 source_name: kpler
 gcs_path: gs://scratch-tomas-ttl30d/kpler-sftp/
 gcs_record_size: 20
-chunk_size: 12500
+buffer_size: 250000
 concurrency: 20

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import logging
+from functools import cached_property
 from typing import Callable, Any
 from types import SimpleNamespace
 from datetime import timezone
@@ -118,8 +119,11 @@ class SftpToGcsIngester:
         gcs_path:
             Destination GCS base path (e.g. ``gs://bucket/dir/``).
 
-        chunk_size:
-            Number of lines per output AVRO file.
+        buffer_size:
+            Number of lines buffered per file before flushing to GCS.
+            ``chunk_size`` (records per flush) is derived as
+            ``max(1, buffer_size // gcs_record_size)``.
+            Controls memory usage: total memory ≈ ``buffer_size × concurrency × line_size``.
 
         concurrency:
             Maximum number of SFTP files processed concurrently.
@@ -143,7 +147,7 @@ class SftpToGcsIngester:
         source_name: str,
         gcs_path: GSPath,
         gcs_record_size: int = 20,
-        chunk_size: int = 12500,
+        buffer_size: int = 250_000,
         concurrency: int = 20,
         storage_factory: Callable = Storage,
         sftp_factory: Callable = asyncssh.connect,
@@ -157,10 +161,14 @@ class SftpToGcsIngester:
         self._source_name = source_name
         self._gcs_path = gcs_path
         self._gcs_record_size = gcs_record_size
-        self._chunk_size = chunk_size
+        self._buffer_size = buffer_size
         self._semaphore = asyncio.Semaphore(concurrency)
         self._storage_factory = storage_factory
         self._sftp_factory = sftp_factory
+
+    @cached_property
+    def _chunk_size(self) -> int:
+        return max(1, self._buffer_size // self._gcs_record_size)
 
     @classmethod
     def from_namespace(cls, namespace: SimpleNamespace, **kwargs: Any) -> SftpToGcsIngester:
@@ -179,7 +187,7 @@ class SftpToGcsIngester:
             source_name=namespace.source_name,
             gcs_path=GSPath(namespace.gcs_path),
             gcs_record_size=namespace.gcs_record_size,
-            chunk_size=namespace.chunk_size,
+            buffer_size=namespace.buffer_size,
             concurrency=namespace.concurrency,
             **kwargs,
         )
