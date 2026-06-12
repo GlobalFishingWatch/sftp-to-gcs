@@ -56,7 +56,7 @@ def test_run_does_nothing_when_all_files_already_complete(monkeypatch):
         "--datetime-to", "2026-04-21T00:10",
         "--source-name", "kpler",
         "--gcs-path", "gs://my-bucket/nmea-ftp-backfill/",
-        "--chunk-size", "12500",
+        "--buffer-size", "250000",
         "--concurrency", "20",
     ]
     main.run(args, storage_factory=mock_storage_factory(exists=True))
@@ -74,7 +74,7 @@ def test_run_processes_files_when_none_complete(monkeypatch):
         "--datetime-to", "2026-04-21T00:10",
         "--source-name", "kpler",
         "--gcs-path", "gs://my-bucket/nmea-ftp-backfill/",
-        "--chunk-size", "12500",
+        "--buffer-size", "250000",
         "--concurrency", "20",
     ]
     main.run(
@@ -102,7 +102,7 @@ def test_run_reads_password_from_file(tmp_path):
         "--datetime-to", "2026-04-21T00:10",
         "--source-name", "kpler",
         "--gcs-path", "gs://my-bucket/nmea-ftp-backfill/",
-        "--chunk-size", "12500",
+        "--buffer-size", "250000",
         "--concurrency", "20",
     ]
     main.run(args, storage_factory=mock_storage_factory(exists=True))
@@ -120,7 +120,7 @@ def test_run_raises_value_error_when_sftp_pass_not_set(monkeypatch):
         "--datetime-to", "2026-04-21T00:10",
         "--source-name", "kpler",
         "--gcs-path", "gs://my-bucket/nmea-ftp-backfill/",
-        "--chunk-size", "12500",
+        "--buffer-size", "250000",
         "--concurrency", "20",
     ]
     with pytest.raises(ValueError, match="Environment variable 'SFTP_PASS' not found"):

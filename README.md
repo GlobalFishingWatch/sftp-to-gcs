@@ -18,7 +18,7 @@
 A lightweight and dockerized CLI tool that transfers files from an SFTP server to Google Cloud Storage.
 
 **Features**:
-* :white_check_mark: Transfer files from SFTP to GCS with configurable chunk size.
+* :white_check_mark: Transfer files from SFTP to GCS with configurable record and buffer size.
 * :white_check_mark: CLI interface for easy integration with orchestration tools.
 * :white_check_mark: Suitable for scheduled or event-driven batch workflows.
 
@@ -53,8 +53,8 @@ The component is configured via CLI arguments or a YAML config file.
 
 ```shell
 (.venv) [tom@tlink sftp-to-gcs]$ sftp-to-gcs -h
-usage: sftp-to-gcs (v0.1.0). [-h] [-c ] [-v] [--log-file ] [--log-to-stdout] [--no-rich-logging] [--only-render] [--sftp-host ] [--sftp-port ] [--sftp-user ] [--sftp-pass-env ]
-                             [--sftp-directory ] [--sftp-filename-format ] [--datetime-from ] [--datetime-to ] [--gcs-path ] [--gcs-record-size ] [--chunk-size ] [--concurrency ]
+usage: sftp-to-gcs (v0.3.0). [-h] [-c ] [-v] [--log-file ] [--log-to-stdout] [--no-rich-logging] [--only-render] [--sftp-host ] [--sftp-port ] [--sftp-user ] [--sftp-pass-env ]
+                             [--sftp-directory ] [--sftp-filename-format ] [--datetime-from ] [--datetime-to ] [--gcs-path ] [--gcs-record-size ] [--buffer-size ] [--concurrency ]
 
 A CLI tool that transfers files from an SFTP server to Google Cloud Storage.
 
@@ -80,7 +80,7 @@ options defined by 'sftp-to-gcs' command:
   --datetime-to            End datetime of the range to process (exclusive), format YYYY-MM-DDTHH:MM. [required] (default: None)
   --gcs-path               Destination GCS path where AVRO files will be written (e.g. gs://bucket/dir/). [required] (default: None)
   --gcs-record-size        Number of sentences per AVRO record. (default: 20)
-  --chunk-size             Number of lines per output AVRO file. (default: 12500)
+  --buffer-size            Number of lines buffered per file before flushing to GCS. Controls memory usage. (default: 250000)
   --concurrency            Maximum number of SFTP files processed concurrently. (default: 20)
 
 Examples:
@@ -112,7 +112,7 @@ datetime_from: "2026-05-11T20:00"
 datetime_to: "2026-05-11T20:10"
 gcs_path: gs://scratch-tomas-ttl30d/kpler-sftp/
 gcs_record_size: 20
-chunk_size: 12500
+buffer_size: 250000
 concurrency: 20
 ```
 
