@@ -53,7 +53,7 @@ The component is configured via CLI arguments or a YAML config file.
 
 ```shell
 (.venv) [tom@tlink sftp-to-gcs]$ sftp-to-gcs -h
-usage: sftp-to-gcs (v0.3.0). [-h] [-c ] [-v] [--log-file ] [--log-to-stdout] [--no-rich-logging] [--only-render] [--sftp-host ] [--sftp-port ] [--sftp-user ] [--sftp-pass-env ]
+usage: sftp-to-gcs (v0.3.1). [-h] [-c ] [-v] [--log-file ] [--log-to-stdout] [--no-rich-logging] [--only-render] [--sftp-host ] [--sftp-port ] [--sftp-user ] [--sftp-pass-env ]
                              [--sftp-directory ] [--sftp-filename-format ] [--datetime-from ] [--datetime-to ] [--gcs-path ] [--gcs-record-size ] [--buffer-size ] [--concurrency ]
 
 A CLI tool that transfers files from an SFTP server to Google Cloud Storage.

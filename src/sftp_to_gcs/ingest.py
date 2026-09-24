@@ -253,16 +253,28 @@ class SftpToGcsIngester:
         self, gcs_client: Storage, day_folder: GSPath, filename: str
     ) -> bool:
         success_path = day_folder / f"{SUCCESS_FILE_PREFIX}{filename}"
-        try:
-            await gcs_client.download_metadata(
-                success_path.bucket,
-                success_path.blob,
-            )
-            return True
-        except aiohttp.ClientResponseError as e:
-            if e.status == 404:
-                return False
-            raise
+
+        # Bounded by the semaphore: without it, every filename in the range fires a
+        # request at once and TLS handshakes starve the event loop past the GCS timeout.
+        @retry(
+            retry=retry_if_exception(self._is_transient),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=10),
+        )
+        async def _check() -> bool:
+            async with self._semaphore:
+                try:
+                    await gcs_client.download_metadata(
+                        success_path.bucket,
+                        success_path.blob,
+                    )
+                    return True
+                except aiohttp.ClientResponseError as e:
+                    if e.status == 404:
+                        return False
+                    raise
+
+        return await _check()
 
     def _is_transient(self, exc: Exception) -> bool:
         if isinstance(exc, asyncio.TimeoutError):
